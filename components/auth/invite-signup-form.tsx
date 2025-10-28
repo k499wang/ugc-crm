@@ -70,7 +70,7 @@ export function InviteSignupForm({ creator, token }: InviteSignupFormProps) {
             company_id: creator.company_id,
             creator_id: creator.id,
           },
-          emailRedirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL || `${window.location.origin}/creator`,
+          emailRedirectTo: `${window.location.origin}/creator`,
         },
       })
 
