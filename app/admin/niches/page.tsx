@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Plus } from "lucide-react"
 import { NichesTable } from "@/components/admin/niches-table"
@@ -66,14 +65,7 @@ export default function NichesPage() {
         </Button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>All Niches ({niches.length})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? <p>Loading...</p> : <NichesTable niches={niches} onEdit={handleEdit} />}
-        </CardContent>
-      </Card>
+      {isLoading ? <p>Loading...</p> : <NichesTable niches={niches} onEdit={handleEdit} />}
 
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
         <DialogContent>

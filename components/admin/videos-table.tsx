@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { Eye, Check, X, DollarSign, Edit2, Save, Search, ArrowUpDown, ArrowUp, ArrowDown, Edit, Trash2, MessageSquare } from "lucide-react"
+import { Eye, Check, X, DollarSign, Edit2, Save, Search, ArrowUpDown, ArrowUp, ArrowDown, Edit, Trash2, MessageSquare, MoreVertical } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useState, useMemo } from "react"
@@ -18,6 +18,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu"
 import { VideoTierPayments } from "./video-tier-payments"
 import { VideoFeedbackDialog } from "./video-feedback-dialog"
 
@@ -290,7 +297,7 @@ export function VideosTable({ videos, companyBasePay, companyCpm }: VideosTableP
             placeholder="Search by title, creator, or platform..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9"
+            className="pl-9 bg-white"
           />
         </div>
         {searchQuery && (
@@ -300,8 +307,9 @@ export function VideosTable({ videos, companyBasePay, companyCpm }: VideosTableP
         )}
       </div>
 
-      <div className="rounded-lg border">
-        <Table>
+      <div className="rounded-lg border bg-white shadow-sm">
+        <div className="max-h-[70vh] overflow-y-auto">
+          <Table>
           <TableHeader>
             <TableRow>
               <TableHead>
@@ -353,16 +361,6 @@ export function VideosTable({ videos, companyBasePay, companyCpm }: VideosTableP
                 >
                   Status
                   {getSortIcon("status")}
-                </Button>
-              </TableHead>
-              <TableHead>
-                <Button
-                  variant="ghost"
-                  className="h-auto p-0 font-semibold hover:bg-transparent"
-                  onClick={() => handleSort("submitted_at")}
-                >
-                  Submitted
-                  {getSortIcon("submitted_at")}
                 </Button>
               </TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -452,17 +450,8 @@ export function VideosTable({ videos, companyBasePay, companyCpm }: VideosTableP
                     )}
                   </TableCell>
                   <TableCell>{getStatusBadge(video.status)}</TableCell>
-                  <TableCell>{new Date(video.submitted_at).toLocaleDateString()}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      {video.video_url && (
-                        <Button variant="ghost" size="sm" asChild>
-                          <a href={video.video_url} target="_blank" rel="noopener noreferrer">
-                            <Eye className="h-4 w-4 mr-1" />
-                            View
-                          </a>
-                        </Button>
-                      )}
                       <Button
                         variant="outline"
                         size="sm"
@@ -470,30 +459,6 @@ export function VideosTable({ videos, companyBasePay, companyCpm }: VideosTableP
                       >
                         <DollarSign className="h-4 w-4 mr-1" />
                         Payments
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleManageFeedback(video)}
-                      >
-                        <MessageSquare className="h-4 w-4 mr-1" />
-                        Feedback
-                      </Button>
-                      <Button variant="outline" size="sm" asChild>
-                        <Link href={`/admin/videos/${video.id}/edit`}>
-                          <Edit className="h-4 w-4 mr-1" />
-                          Edit
-                        </Link>
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDelete(video.id)}
-                        disabled={deletingId === video.id}
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                      >
-                        <Trash2 className="h-4 w-4 mr-1" />
-                        Delete
                       </Button>
                       {video.status === "pending" && (
                         <>
@@ -519,6 +484,42 @@ export function VideosTable({ videos, companyBasePay, companyCpm }: VideosTableP
                           </Button>
                         </>
                       )}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {video.video_url && (
+                            <DropdownMenuItem asChild>
+                              <a href={video.video_url} target="_blank" rel="noopener noreferrer" className="cursor-pointer">
+                                <Eye className="h-4 w-4 mr-2" />
+                                View Video
+                              </a>
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem onClick={() => handleManageFeedback(video)}>
+                            <MessageSquare className="h-4 w-4 mr-2" />
+                            Feedback
+                          </DropdownMenuItem>
+                          <DropdownMenuItem asChild>
+                            <Link href={`/admin/videos/${video.id}/edit`}>
+                              <Edit className="h-4 w-4 mr-2" />
+                              Edit
+                            </Link>
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => handleDelete(video.id)}
+                            disabled={deletingId === video.id}
+                            className="text-red-600 focus:text-red-600"
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -527,6 +528,7 @@ export function VideosTable({ videos, companyBasePay, companyCpm }: VideosTableP
             )}
           </TableBody>
         </Table>
+        </div>
       </div>
 
       <Dialog open={tierDialogOpen} onOpenChange={setTierDialogOpen}>
@@ -563,13 +565,13 @@ export function VideosTable({ videos, companyBasePay, companyCpm }: VideosTableP
       </Dialog>
 
       {selectedVideo && (
-        <VideoFeedbackDialog
-          videoId={selectedVideo.id}
-          videoTitle={selectedVideo.title}
-          open={feedbackDialogOpen}
-          onOpenChange={setFeedbackDialogOpen}
-        />
-      )}
+         <VideoFeedbackDialog
+           videoId={selectedVideo.id}
+           videoTitle={selectedVideo.title}
+           open={feedbackDialogOpen}
+           onOpenChange={setFeedbackDialogOpen}
+         />
+       )}
     </>
   )
 }

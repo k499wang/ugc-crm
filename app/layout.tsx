@@ -1,13 +1,22 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import { M_PLUS_Rounded_1c, Zen_Maru_Gothic } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
+import '../styles/themes/brand.css'
 
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
+const rounded = M_PLUS_Rounded_1c({
+  subsets: ['latin'],
+  weight: ['400','500','700','800'],
+  variable: '--font-sans-rounded',
   display: 'swap',
-});
+})
+
+const zen = Zen_Maru_Gothic({
+  subsets: ['latin'],
+  weight: ['400','500','700'],
+  variable: '--font-display',
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: 'v0 App',
@@ -22,7 +31,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${inter.className} antialiased`}>
+      <body className={`${rounded.className} ${rounded.variable} ${zen.variable} antialiased theme-bamboo shape-soft`}>
         {children}
         <Analytics />
       </body>
