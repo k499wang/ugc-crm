@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(dir /s \"C:\\Users\\Kevin Wang\\Downloads\\ugc-creator-crm (2)\")",
+      "Bash(dir /s \"c:\\Users\\Kevin Wang\\Downloads\\ugc-creator-crm (2)\\app\\admin\\creators\\[id]\\edit\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
