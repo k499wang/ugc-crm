@@ -310,7 +310,7 @@ export function VideoTierPayments({
               checked={baseCpmPaid}
               onCheckedChange={handleToggleBaseCpmPaid}
               disabled={updatingBaseCpm}
-              className="h-4 w-4"
+              className="h-4 w-4 bg-white"
             />
             <Label
               htmlFor="base-cpm-paid"
@@ -412,7 +412,7 @@ export function VideoTierPayments({
                             checked={tp.paid}
                             onCheckedChange={() => handleTogglePaid(tp.id, tp.paid)}
                             disabled={updating === tp.id}
-                            className="h-5 w-5"
+                            className="h-5 w-5 bg-white"
                           />
                           <Label
                             htmlFor={`paid-${tp.id}`}

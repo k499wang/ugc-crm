@@ -19,9 +19,8 @@ const zen = Zen_Maru_Gothic({
 })
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
-  generator: 'v0.app',
+  title: 'Bamboo Labs',
+  description: 'Created by Bamboo Labs',
 }
 
 export default function RootLayout({
