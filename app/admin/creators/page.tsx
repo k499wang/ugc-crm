@@ -4,7 +4,21 @@ import { Plus } from "lucide-react"
 import Link from "next/link"
 import { CreatorsTable } from "@/components/admin/creators-table"
 
-export default async function CreatorsPage() {
+type SearchParams = Promise<{
+  page?: string
+  search?: string
+  sortField?: string
+  sortDirection?: string
+}>
+
+export default async function CreatorsPage({ searchParams }: { searchParams: SearchParams }) {
+  const params = await searchParams
+  const page = Number.parseInt(params.page || "1")
+  const search = params.search || ""
+  const sortField = params.sortField || "created_at"
+  const sortDirection = params.sortDirection || "desc"
+  const itemsPerPage = 15
+
   const supabase = await createClient()
 
   const { data: profile } = await supabase.from("profiles").select("company_id").single()
@@ -13,12 +27,28 @@ export default async function CreatorsPage() {
     return <div>No company found</div>
   }
 
-  const [{ data: creators }, { data: videos }, { data: tierPayments }] = await Promise.all([
-    supabase
-      .from("creators")
-      .select("*")
-      .eq("company_id", profile.company_id)
-      .order("created_at", { ascending: false }),
+  // Build query for creators
+  let creatorsQuery = supabase
+    .from("creators")
+    .select("*", { count: "exact" })
+    .eq("company_id", profile.company_id)
+
+  // Apply search filter
+  if (search) {
+    creatorsQuery = creatorsQuery.ilike("name", `%${search}%`)
+  }
+
+  // Apply sorting
+  const ascending = sortDirection === "asc"
+  creatorsQuery = creatorsQuery.order(sortField, { ascending })
+
+  // Apply pagination
+  const from = (page - 1) * itemsPerPage
+  const to = from + itemsPerPage - 1
+  const { data: creators, count: totalCount } = await creatorsQuery.range(from, to)
+
+  // Fetch videos and tier payments for calculating stats
+  const [{ data: videos }, { data: tierPayments }] = await Promise.all([
     supabase
       .from("videos")
       .select("creator_id, views")
@@ -46,6 +76,8 @@ export default async function CreatorsPage() {
     }
   }) || []
 
+  const totalPages = Math.ceil((totalCount || 0) / itemsPerPage)
+
   return (
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
@@ -61,7 +93,15 @@ export default async function CreatorsPage() {
         </Button>
       </div>
 
-      <CreatorsTable creators={creatorsWithStats} />
+      <CreatorsTable
+        creators={creatorsWithStats}
+        currentPage={page}
+        totalPages={totalPages}
+        totalCount={totalCount || 0}
+        searchQuery={search}
+        sortField={sortField}
+        sortDirection={sortDirection}
+      />
     </div>
   )
 }

@@ -5,11 +5,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { Eye, Check, X, DollarSign, Edit2, Save, Search, ArrowUpDown, ArrowUp, ArrowDown, Edit, Trash2, MessageSquare, MoreVertical } from "lucide-react"
-import { useRouter } from "next/navigation"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
+import { Eye, Check, X, DollarSign, Edit2, Save, Search, ArrowUpDown, ArrowUp, ArrowDown, Edit, Trash2, MessageSquare, MoreVertical, Calendar, Filter, ChevronsUpDown } from "lucide-react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
-import { useState, useMemo } from "react"
+import { useState, useTransition } from "react"
 import Link from "next/link"
+import { cn } from "@/lib/utils"
 import {
   Dialog,
   DialogContent,
@@ -25,6 +28,15 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationPrevious,
+  PaginationNext,
+  PaginationEllipsis,
+} from "@/components/ui/pagination"
 import { VideoTierPayments } from "./video-tier-payments"
 import { VideoFeedbackDialog } from "./video-feedback-dialog"
 
@@ -49,14 +61,39 @@ interface VideosTableProps {
   videos: ExtendedVideo[]
   companyBasePay: number | null
   companyCpm: number | null
+  currentPage: number
+  totalPages: number
+  totalCount: number
+  searchQuery: string
+  sortField: string
+  sortDirection: string
+  showPastTwoWeeks: boolean
+  creatorId: string
+  creators: Array<{ id: string; name: string }>
 }
 
 type SortField = "title" | "creator" | "platform" | "views" | "status" | "submitted_at"
 type SortDirection = "asc" | "desc" | null
 
-export function VideosTable({ videos, companyBasePay, companyCpm }: VideosTableProps) {
+export function VideosTable({
+  videos,
+  companyBasePay,
+  companyCpm,
+  currentPage,
+  totalPages,
+  totalCount,
+  searchQuery: initialSearchQuery,
+  sortField: initialSortField,
+  sortDirection: initialSortDirection,
+  showPastTwoWeeks: initialShowPastTwoWeeks,
+  creatorId: initialCreatorId,
+  creators,
+}: VideosTableProps) {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const [isPending, startTransition] = useTransition()
   const supabase = createClient()
+
   const [actioningId, setActioningId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [tierDialogOpen, setTierDialogOpen] = useState(false)
@@ -65,92 +102,95 @@ export function VideosTable({ videos, companyBasePay, companyCpm }: VideosTableP
   const [editingViewsId, setEditingViewsId] = useState<string | null>(null)
   const [newViews, setNewViews] = useState<string>("")
   const [updatingViews, setUpdatingViews] = useState(false)
-  const [searchQuery, setSearchQuery] = useState("")
-  const [sortField, setSortField] = useState<SortField | null>(null)
-  const [sortDirection, setSortDirection] = useState<SortDirection>(null)
+  const [creatorComboboxOpen, setCreatorComboboxOpen] = useState(false)
+  const [creatorSearchQuery, setCreatorSearchQuery] = useState("")
 
-  // Filter and sort videos
-  const filteredAndSortedVideos = useMemo(() => {
-    let result = [...videos]
+  // Local state for search input (for typing without triggering on every keystroke)
+  const [searchInput, setSearchInput] = useState(initialSearchQuery)
 
-    // Apply search filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase()
-      result = result.filter((video) => {
-        const title = video.title?.toLowerCase() || ""
-        const creator = video.creators?.name?.toLowerCase() || ""
-        const platform = video.platform?.toLowerCase() || ""
-        return title.includes(query) || creator.includes(query) || platform.includes(query)
-      })
-    }
+  // Update URL params helper
+  const updateUrlParams = (updates: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams.toString())
 
-    // Apply sorting
-    if (sortField && sortDirection) {
-      result.sort((a, b) => {
-        let aValue: any
-        let bValue: any
+    Object.entries(updates).forEach(([key, value]) => {
+      if (value === null || value === "" || value === "false") {
+        params.delete(key)
+      } else {
+        params.set(key, value)
+      }
+    })
 
-        switch (sortField) {
-          case "title":
-            aValue = a.title?.toLowerCase() || ""
-            bValue = b.title?.toLowerCase() || ""
-            break
-          case "creator":
-            aValue = a.creators?.name?.toLowerCase() || ""
-            bValue = b.creators?.name?.toLowerCase() || ""
-            break
-          case "platform":
-            aValue = a.platform?.toLowerCase() || ""
-            bValue = b.platform?.toLowerCase() || ""
-            break
-          case "views":
-            aValue = a.views || 0
-            bValue = b.views || 0
-            break
-          case "status":
-            aValue = a.status
-            bValue = b.status
-            break
-          case "submitted_at":
-            aValue = new Date(a.submitted_at).getTime()
-            bValue = new Date(b.submitted_at).getTime()
-            break
-          default:
-            return 0
-        }
-
-        if (aValue < bValue) return sortDirection === "asc" ? -1 : 1
-        if (aValue > bValue) return sortDirection === "asc" ? 1 : -1
-        return 0
-      })
-    }
-
-    return result
-  }, [videos, searchQuery, sortField, sortDirection])
+    startTransition(() => {
+      router.push(`?${params.toString()}`, { scroll: false })
+    })
+  }
 
   const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      // Cycle through: asc -> desc -> null
-      if (sortDirection === "asc") {
-        setSortDirection("desc")
-      } else if (sortDirection === "desc") {
-        setSortField(null)
-        setSortDirection(null)
+    let newDirection: string | null = "asc"
+
+    if (initialSortField === field) {
+      // Cycle through: asc -> desc -> null (back to default)
+      if (initialSortDirection === "asc") {
+        newDirection = "desc"
+      } else if (initialSortDirection === "desc") {
+        newDirection = null
       }
-    } else {
-      setSortField(field)
-      setSortDirection("asc")
     }
+
+    updateUrlParams({
+      sortField: newDirection ? field : null,
+      sortDirection: newDirection,
+      page: "1", // Reset to page 1 when sorting changes
+    })
   }
 
   const getSortIcon = (field: SortField) => {
-    if (sortField !== field) {
+    if (initialSortField !== field) {
       return <ArrowUpDown className="ml-2 h-4 w-4" />
     }
-    if (sortDirection === "asc") {
+    if (initialSortDirection === "asc") {
       return <ArrowUp className="ml-2 h-4 w-4" />
     }
     return <ArrowDown className="ml-2 h-4 w-4" />
+  }
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    updateUrlParams({
+      search: searchInput || null,
+      page: "1", // Reset to page 1 when search changes
+    })
+  }
+
+  const handlePastTwoWeeksToggle = () => {
+    updateUrlParams({
+      pastTwoWeeks: initialShowPastTwoWeeks ? null : "true",
+      page: "1", // Reset to page 1 when filter changes
+    })
+  }
+
+  const handleCreatorFilter = (value: string) => {
+    updateUrlParams({
+      creatorId: value === "all" ? null : value,
+      page: "1", // Reset to page 1 when filter changes
+    })
+    setCreatorComboboxOpen(false)
+    setCreatorSearchQuery("") // Reset search for next time
+  }
+
+  const selectedCreator = creators.find(c => c.id === initialCreatorId)
+
+  // Filter and limit creators for dropdown
+  const filteredCreators = creatorSearchQuery
+    ? creators.filter((creator) =>
+        creator.name.toLowerCase().includes(creatorSearchQuery.toLowerCase())
+      ).slice(0, 100) // Show max 100 search results
+    : creators.slice(0, 50) // Show first 50 initially
+
+  const handlePageChange = (newPage: number) => {
+    updateUrlParams({
+      page: newPage.toString(),
+    })
   }
 
   const handleApprove = async (id: string) => {
@@ -280,31 +320,128 @@ export function VideosTable({ videos, companyBasePay, companyCpm }: VideosTableP
     return <Badge variant={variants[status] || "secondary"}>{status}</Badge>
   }
 
-  if (videos.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12">
-        <p className="text-muted-foreground">No videos in this category.</p>
-      </div>
-    )
-  }
-
   return (
     <>
-      <div className="mb-4">
-        <div className="relative">
+      <div className="mb-4 space-y-3">
+        <form onSubmit={handleSearchSubmit} className="relative">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search by title, creator, or platform..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             className="pl-9 bg-white"
           />
+        </form>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Popover
+            open={creatorComboboxOpen}
+            onOpenChange={(open) => {
+              setCreatorComboboxOpen(open)
+              if (!open) setCreatorSearchQuery("") // Reset search when closing
+            }}
+          >
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                aria-expanded={creatorComboboxOpen}
+                className="w-[250px] justify-between bg-white"
+                disabled={isPending}
+              >
+                <div className="flex items-center">
+                  <Filter className="mr-2 h-4 w-4 shrink-0" />
+                  <span className="truncate">
+                    {selectedCreator ? selectedCreator.name : "All Creators"}
+                  </span>
+                </div>
+                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[250px] p-0" align="start">
+              <Command shouldFilter={false}>
+                <CommandInput
+                  placeholder="Search creators..."
+                  value={creatorSearchQuery}
+                  onValueChange={setCreatorSearchQuery}
+                />
+                <CommandList>
+                  <CommandEmpty>
+                    {creatorSearchQuery
+                      ? "No creator found."
+                      : "Type to search creators..."}
+                  </CommandEmpty>
+                  <CommandGroup>
+                    <CommandItem
+                      value="all"
+                      onSelect={() => handleCreatorFilter("all")}
+                    >
+                      <Check
+                        className={cn(
+                          "mr-2 h-4 w-4",
+                          !initialCreatorId ? "opacity-100" : "opacity-0"
+                        )}
+                      />
+                      All Creators
+                    </CommandItem>
+                    {filteredCreators.map((creator) => (
+                      <CommandItem
+                        key={creator.id}
+                        value={creator.id}
+                        onSelect={() => handleCreatorFilter(creator.id)}
+                      >
+                        <Check
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            initialCreatorId === creator.id ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                        {creator.name}
+                      </CommandItem>
+                    ))}
+                    {!creatorSearchQuery && creators.length > 50 && (
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground text-center border-t">
+                        Showing first 50 of {creators.length} creators. Type to search more.
+                      </div>
+                    )}
+                    {creatorSearchQuery && filteredCreators.length === 100 && (
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground text-center border-t">
+                        Showing first 100 results. Refine your search for more.
+                      </div>
+                    )}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+          <Button
+            variant={initialShowPastTwoWeeks ? "default" : "outline"}
+            size="sm"
+            onClick={handlePastTwoWeeksToggle}
+            disabled={isPending}
+          >
+            <Calendar className="mr-2 h-4 w-4" />
+            Past 2 Weeks
+          </Button>
+          {(initialSearchQuery || initialCreatorId) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSearchInput("")
+                updateUrlParams({ search: null, creatorId: null, page: "1" })
+              }}
+            >
+              Clear filters
+            </Button>
+          )}
         </div>
-        {searchQuery && (
-          <p className="mt-2 text-sm text-muted-foreground">
-            Found {filteredAndSortedVideos.length} of {videos.length} videos
-          </p>
-        )}
+        <p className="text-sm text-muted-foreground">
+          Showing {videos.length} of {totalCount} videos
+          {currentPage > 1 && ` (page ${currentPage} of ${totalPages})`}
+          {initialCreatorId && creators.find(c => c.id === initialCreatorId) && (
+            <> • Filtered by creator: <strong>{creators.find(c => c.id === initialCreatorId)?.name}</strong></>
+          )}
+        </p>
       </div>
 
       <div className="rounded-lg border bg-white shadow-sm">
@@ -363,18 +500,28 @@ export function VideosTable({ videos, companyBasePay, companyCpm }: VideosTableP
                   {getSortIcon("status")}
                 </Button>
               </TableHead>
+              <TableHead>
+                <Button
+                  variant="ghost"
+                  className="h-auto p-0 font-semibold hover:bg-transparent"
+                  onClick={() => handleSort("submitted_at")}
+                >
+                  Submitted
+                  {getSortIcon("submitted_at")}
+                </Button>
+              </TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredAndSortedVideos.length === 0 ? (
+            {videos.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="h-24 text-center">
+                <TableCell colSpan={9} className="h-24 text-center">
                   <p className="text-muted-foreground">No videos found matching your search.</p>
                 </TableCell>
               </TableRow>
             ) : (
-              filteredAndSortedVideos.map((video) => {
+              videos.map((video) => {
                 const tierSummary = getTierPaymentSummary(video)
 
                 return (
@@ -450,6 +597,15 @@ export function VideosTable({ videos, companyBasePay, companyCpm }: VideosTableP
                     )}
                   </TableCell>
                   <TableCell>{getStatusBadge(video.status)}</TableCell>
+                  <TableCell>
+                    <span className="text-sm">
+                      {new Date(video.submitted_at).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                      })}
+                    </span>
+                  </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
                       <Button
@@ -530,6 +686,86 @@ export function VideosTable({ videos, companyBasePay, companyCpm }: VideosTableP
         </Table>
         </div>
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="mt-4 flex justify-center">
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+                  className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                />
+              </PaginationItem>
+
+              {/* First page */}
+              {currentPage > 2 && (
+                <PaginationItem>
+                  <PaginationLink onClick={() => handlePageChange(1)} className="cursor-pointer">
+                    1
+                  </PaginationLink>
+                </PaginationItem>
+              )}
+
+              {/* Ellipsis if needed */}
+              {currentPage > 3 && (
+                <PaginationItem>
+                  <PaginationEllipsis />
+                </PaginationItem>
+              )}
+
+              {/* Previous page */}
+              {currentPage > 1 && (
+                <PaginationItem>
+                  <PaginationLink onClick={() => handlePageChange(currentPage - 1)} className="cursor-pointer">
+                    {currentPage - 1}
+                  </PaginationLink>
+                </PaginationItem>
+              )}
+
+              {/* Current page */}
+              <PaginationItem>
+                <PaginationLink isActive className="cursor-pointer">
+                  {currentPage}
+                </PaginationLink>
+              </PaginationItem>
+
+              {/* Next page */}
+              {currentPage < totalPages && (
+                <PaginationItem>
+                  <PaginationLink onClick={() => handlePageChange(currentPage + 1)} className="cursor-pointer">
+                    {currentPage + 1}
+                  </PaginationLink>
+                </PaginationItem>
+              )}
+
+              {/* Ellipsis if needed */}
+              {currentPage < totalPages - 2 && (
+                <PaginationItem>
+                  <PaginationEllipsis />
+                </PaginationItem>
+              )}
+
+              {/* Last page */}
+              {currentPage < totalPages - 1 && (
+                <PaginationItem>
+                  <PaginationLink onClick={() => handlePageChange(totalPages)} className="cursor-pointer">
+                    {totalPages}
+                  </PaginationLink>
+                </PaginationItem>
+              )}
+
+              <PaginationItem>
+                <PaginationNext
+                  onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+                  className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        </div>
+      )}
 
       <Dialog open={tierDialogOpen} onOpenChange={setTierDialogOpen}>
         <DialogContent className="!max-w-[98vw] !w-[98vw] max-h-[98vh] overflow-y-auto">

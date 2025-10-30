@@ -3,6 +3,7 @@ import { M_PLUS_Rounded_1c, Zen_Maru_Gothic } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 import '../styles/themes/brand.css'
+import { Toaster } from '@/components/ui/toaster'
 
 const rounded = M_PLUS_Rounded_1c({
   subsets: ['latin'],
@@ -32,6 +33,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${rounded.className} ${rounded.variable} ${zen.variable} antialiased theme-bamboo shape-soft`}>
         {children}
+        <Toaster />
         <Analytics />
       </body>
     </html>

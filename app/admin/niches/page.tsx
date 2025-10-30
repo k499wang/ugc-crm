@@ -1,80 +1,60 @@
-"use client"
+import { createClient } from "@/lib/supabase/server"
+import { NichesPageClient } from "@/components/admin/niches-page-client"
 
-import { useState, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Plus } from "lucide-react"
-import { NichesTable } from "@/components/admin/niches-table"
-import { NicheForm } from "@/components/admin/niche-form"
-import { createClient } from "@/lib/supabase/client"
-import type { Niche } from "@/lib/types"
+type SearchParams = Promise<{
+  page?: string
+  search?: string
+  sortField?: string
+  sortDirection?: string
+}>
 
-export default function NichesPage() {
-  const supabase = createClient()
-  const [niches, setNiches] = useState<Niche[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [showDialog, setShowDialog] = useState(false)
-  const [editingNiche, setEditingNiche] = useState<Niche | undefined>(undefined)
+export default async function NichesPage({ searchParams }: { searchParams: SearchParams }) {
+  const params = await searchParams
+  const page = Number.parseInt(params.page || "1")
+  const search = params.search || ""
+  const sortField = params.sortField || "name"
+  const sortDirection = params.sortDirection || "asc"
+  const itemsPerPage = 15
 
-  const fetchNiches = async () => {
-    setIsLoading(true)
-    const { data: profile } = await supabase.from("profiles").select("company_id").single()
+  const supabase = await createClient()
 
-    if (profile?.company_id) {
-      const { data } = await supabase
-        .from("niches")
-        .select("*")
-        .eq("company_id", profile.company_id)
-        .order("name")
+  const { data: profile } = await supabase.from("profiles").select("company_id").single()
 
-      setNiches(data || [])
-    }
-    setIsLoading(false)
+  if (!profile?.company_id) {
+    return <div>No company found</div>
   }
 
-  useEffect(() => {
-    fetchNiches()
-  }, [])
+  // Build query for niches
+  let nichesQuery = supabase
+    .from("niches")
+    .select("*", { count: "exact" })
+    .eq("company_id", profile.company_id)
 
-  const handleEdit = (niche: Niche) => {
-    setEditingNiche(niche)
-    setShowDialog(true)
+  // Apply search filter
+  if (search) {
+    nichesQuery = nichesQuery.ilike("name", `%${search}%`)
   }
 
-  const handleSuccess = () => {
-    setShowDialog(false)
-    setEditingNiche(undefined)
-    fetchNiches()
-  }
+  // Apply sorting
+  const ascending = sortDirection === "asc"
+  nichesQuery = nichesQuery.order(sortField, { ascending })
 
-  const handleCancel = () => {
-    setShowDialog(false)
-    setEditingNiche(undefined)
-  }
+  // Apply pagination
+  const from = (page - 1) * itemsPerPage
+  const to = from + itemsPerPage - 1
+  const { data: niches, count: totalCount } = await nichesQuery.range(from, to)
+
+  const totalPages = Math.ceil((totalCount || 0) / itemsPerPage)
 
   return (
-    <div className="flex flex-col gap-6 p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Niches</h1>
-          <p className="text-muted-foreground">Organize your creators into niches and assign payment tiers</p>
-        </div>
-        <Button onClick={() => setShowDialog(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Niche
-        </Button>
-      </div>
-
-      {isLoading ? <p>Loading...</p> : <NichesTable niches={niches} onEdit={handleEdit} />}
-
-      <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingNiche ? "Edit Niche" : "Create New Niche"}</DialogTitle>
-          </DialogHeader>
-          <NicheForm niche={editingNiche} onSuccess={handleSuccess} onCancel={handleCancel} />
-        </DialogContent>
-      </Dialog>
-    </div>
+    <NichesPageClient
+      niches={niches || []}
+      currentPage={page}
+      totalPages={totalPages}
+      totalCount={totalCount || 0}
+      searchQuery={search}
+      sortField={sortField}
+      sortDirection={sortDirection}
+    />
   )
 }

@@ -8,8 +8,8 @@ import { Input } from "@/components/ui/input"
 import { Edit, Trash2, Users, Search, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
-import { useRouter } from "next/navigation"
-import { useState, useMemo } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { useState, useTransition } from "react"
 import {
   Dialog,
   DialogContent,
@@ -17,79 +17,109 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationPrevious,
+  PaginationNext,
+  PaginationEllipsis,
+} from "@/components/ui/pagination"
 
 interface NichesTableProps {
   niches: Niche[]
   onEdit?: (niche: Niche) => void
+  currentPage: number
+  totalPages: number
+  totalCount: number
+  searchQuery: string
+  sortField: string
+  sortDirection: string
 }
 
 type SortField = "name"
 type SortDirection = "asc" | "desc" | null
 
-export function NichesTable({ niches: initialNiches, onEdit }: NichesTableProps) {
+export function NichesTable({
+  niches,
+  onEdit,
+  currentPage,
+  totalPages,
+  totalCount,
+  searchQuery: initialSearchQuery,
+  sortField: initialSortField,
+  sortDirection: initialSortDirection,
+}: NichesTableProps) {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const [isPending, startTransition] = useTransition()
   const supabase = createClient()
+
   const [deletingId, setDeletingId] = useState<string | null>(null)
-  const [niches, setNiches] = useState<Niche[]>(initialNiches)
   const [creatorsDialogOpen, setCreatorsDialogOpen] = useState(false)
   const [selectedNiche, setSelectedNiche] = useState<Niche | null>(null)
   const [nicheCreators, setNicheCreators] = useState<Creator[]>([])
   const [loadingCreators, setLoadingCreators] = useState(false)
-  const [searchQuery, setSearchQuery] = useState("")
-  const [sortField, setSortField] = useState<SortField | null>(null)
-  const [sortDirection, setSortDirection] = useState<SortDirection>(null)
+  const [searchInput, setSearchInput] = useState(initialSearchQuery)
 
-  // Filter and sort niches
-  const filteredAndSortedNiches = useMemo(() => {
-    let result = [...niches]
+  // Update URL params helper
+  const updateUrlParams = (updates: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams.toString())
 
-    // Apply search filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase()
-      result = result.filter((niche) => {
-        const name = niche.name?.toLowerCase() || ""
-        return name.includes(query)
-      })
-    }
+    Object.entries(updates).forEach(([key, value]) => {
+      if (value === null || value === "") {
+        params.delete(key)
+      } else {
+        params.set(key, value)
+      }
+    })
 
-    // Apply sorting
-    if (sortField && sortDirection) {
-      result.sort((a, b) => {
-        const aValue = a.name?.toLowerCase() || ""
-        const bValue = b.name?.toLowerCase() || ""
-
-        if (aValue < bValue) return sortDirection === "asc" ? -1 : 1
-        if (aValue > bValue) return sortDirection === "asc" ? 1 : -1
-        return 0
-      })
-    }
-
-    return result
-  }, [niches, searchQuery, sortField, sortDirection])
+    startTransition(() => {
+      router.push(`?${params.toString()}`, { scroll: false })
+    })
+  }
 
   const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      // Cycle through: asc -> desc -> null
-      if (sortDirection === "asc") {
-        setSortDirection("desc")
-      } else if (sortDirection === "desc") {
-        setSortField(null)
-        setSortDirection(null)
+    let newDirection: string | null = "asc"
+
+    if (initialSortField === field) {
+      if (initialSortDirection === "asc") {
+        newDirection = "desc"
+      } else if (initialSortDirection === "desc") {
+        newDirection = null
       }
-    } else {
-      setSortField(field)
-      setSortDirection("asc")
     }
+
+    updateUrlParams({
+      sortField: newDirection ? field : null,
+      sortDirection: newDirection,
+      page: "1",
+    })
   }
 
   const getSortIcon = (field: SortField) => {
-    if (sortField !== field) {
+    if (initialSortField !== field) {
       return <ArrowUpDown className="ml-2 h-4 w-4" />
     }
-    if (sortDirection === "asc") {
+    if (initialSortDirection === "asc") {
       return <ArrowUp className="ml-2 h-4 w-4" />
     }
     return <ArrowDown className="ml-2 h-4 w-4" />
+  }
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    updateUrlParams({
+      search: searchInput || null,
+      page: "1",
+    })
+  }
+
+  const handlePageChange = (newPage: number) => {
+    updateUrlParams({
+      page: newPage.toString(),
+    })
   }
 
   const handleViewCreators = async (niche: Niche) => {
@@ -125,10 +155,7 @@ export function NichesTable({ niches: initialNiches, onEdit }: NichesTableProps)
 
       if (error) throw error
 
-      // Optimistically update UI
-      setNiches(niches.filter((niche) => niche.id !== id))
-
-      // Refresh in background to ensure consistency
+      // Refresh to get updated data from server
       router.refresh()
     } catch (error) {
       alert("Error deleting niche: " + (error instanceof Error ? error.message : "An error occurred"))
@@ -137,31 +164,34 @@ export function NichesTable({ niches: initialNiches, onEdit }: NichesTableProps)
     }
   }
 
-  if (niches.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12">
-        <p className="text-muted-foreground">No niches yet. Create your first niche to organize your creators.</p>
-      </div>
-    )
-  }
-
   return (
     <>
-      <div className="mb-4">
-        <div className="relative">
+      <div className="mb-4 space-y-3">
+        <form onSubmit={handleSearchSubmit} className="relative">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search by name..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             className="pl-9 bg-white"
           />
-        </div>
-        {searchQuery && (
-          <p className="mt-2 text-sm text-muted-foreground">
-            Found {filteredAndSortedNiches.length} of {niches.length} niches
-          </p>
+        </form>
+        {initialSearchQuery && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setSearchInput("")
+              updateUrlParams({ search: null, page: "1" })
+            }}
+          >
+            Clear search
+          </Button>
         )}
+        <p className="text-sm text-muted-foreground">
+          Showing {niches.length} of {totalCount} niches
+          {currentPage > 1 && ` (page ${currentPage} of ${totalPages})`}
+        </p>
       </div>
 
       <div className="rounded-lg border bg-white shadow-sm">
@@ -184,14 +214,14 @@ export function NichesTable({ niches: initialNiches, onEdit }: NichesTableProps)
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredAndSortedNiches.length === 0 ? (
+            {niches.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={3} className="h-24 text-center">
                   <p className="text-muted-foreground">No niches found matching your search.</p>
                 </TableCell>
               </TableRow>
             ) : (
-              filteredAndSortedNiches.map((niche) => (
+              niches.map((niche) => (
                 <TableRow key={niche.id}>
                   <TableCell className="font-medium">{niche.name}</TableCell>
                   <TableCell>{niche.description || "-"}</TableCell>
@@ -227,6 +257,86 @@ export function NichesTable({ niches: initialNiches, onEdit }: NichesTableProps)
         </Table>
         </div>
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="mt-4 flex justify-center">
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+                  className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                />
+              </PaginationItem>
+
+              {/* First page */}
+              {currentPage > 2 && (
+                <PaginationItem>
+                  <PaginationLink onClick={() => handlePageChange(1)} className="cursor-pointer">
+                    1
+                  </PaginationLink>
+                </PaginationItem>
+              )}
+
+              {/* Ellipsis if needed */}
+              {currentPage > 3 && (
+                <PaginationItem>
+                  <PaginationEllipsis />
+                </PaginationItem>
+              )}
+
+              {/* Previous page */}
+              {currentPage > 1 && (
+                <PaginationItem>
+                  <PaginationLink onClick={() => handlePageChange(currentPage - 1)} className="cursor-pointer">
+                    {currentPage - 1}
+                  </PaginationLink>
+                </PaginationItem>
+              )}
+
+              {/* Current page */}
+              <PaginationItem>
+                <PaginationLink isActive className="cursor-pointer">
+                  {currentPage}
+                </PaginationLink>
+              </PaginationItem>
+
+              {/* Next page */}
+              {currentPage < totalPages && (
+                <PaginationItem>
+                  <PaginationLink onClick={() => handlePageChange(currentPage + 1)} className="cursor-pointer">
+                    {currentPage + 1}
+                  </PaginationLink>
+                </PaginationItem>
+              )}
+
+              {/* Ellipsis if needed */}
+              {currentPage < totalPages - 2 && (
+                <PaginationItem>
+                  <PaginationEllipsis />
+                </PaginationItem>
+              )}
+
+              {/* Last page */}
+              {currentPage < totalPages - 1 && (
+                <PaginationItem>
+                  <PaginationLink onClick={() => handlePageChange(totalPages)} className="cursor-pointer">
+                    {totalPages}
+                  </PaginationLink>
+                </PaginationItem>
+              )}
+
+              <PaginationItem>
+                <PaginationNext
+                  onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+                  className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        </div>
+      )}
 
       <Dialog open={creatorsDialogOpen} onOpenChange={setCreatorsDialogOpen}>
         <DialogContent className="!max-w-[70vw] !w-[70vw] overflow-hidden">

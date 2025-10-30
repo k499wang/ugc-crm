@@ -1,11 +1,31 @@
 import { createClient } from "@/lib/supabase/server"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { VideosTable } from "@/components/admin/videos-table"
+import { VideosTabsWrapper } from "@/components/admin/videos-tabs-wrapper"
 import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 import Link from "next/link"
 
-export default async function VideosPage() {
+type SearchParams = Promise<{
+  tab?: string
+  page?: string
+  search?: string
+  sortField?: string
+  sortDirection?: string
+  pastTwoWeeks?: string
+  creatorId?: string
+}>
+
+export default async function VideosPage({ searchParams }: { searchParams: SearchParams }) {
+  const params = await searchParams
+  const activeTab = params.tab || "all"
+  const page = Number.parseInt(params.page || "1")
+  const search = params.search || ""
+  const sortField = params.sortField || "submitted_at"
+  const sortDirection = params.sortDirection || "desc"
+  const pastTwoWeeks = params.pastTwoWeeks === "true"
+  const creatorId = params.creatorId || ""
+  const itemsPerPage = 15
+
   const supabase = await createClient()
 
   const { data: profile } = await supabase.from("profiles").select("company_id").single()
@@ -21,46 +41,119 @@ export default async function VideosPage() {
     .eq("id", profile.company_id)
     .single()
 
-  // Fetch videos with creator information (including niche and creator payment data) and tier payments
-  const { data: allVideos } = await supabase
-    .from("videos")
-    .select(
-      `
-      *,
-      creators (
-        id,
-        name,
-        email,
-        base_pay,
-        cpm,
-        niche:niches (
+  // Build base query for videos with creator information and tier payments
+  const buildVideoQuery = (statusFilter?: string) => {
+    let query = supabase
+      .from("videos")
+      .select(
+        `
+        *,
+        creators (
           id,
           name,
+          email,
+          base_pay,
           cpm,
-          base_pay
-        )
-      ),
-      video_tier_payments (
-        id,
-        reached,
-        paid,
-        paid_at,
-        payment_amount,
-        tier:payment_tiers (
+          niche:niches (
+            id,
+            name,
+            cpm,
+            base_pay
+          )
+        ),
+        video_tier_payments (
           id,
-          tier_name,
-          view_count_threshold,
-          amount
+          reached,
+          paid,
+          paid_at,
+          payment_amount,
+          tier:payment_tiers (
+            id,
+            tier_name,
+            view_count_threshold,
+            amount
+          )
         )
+      `,
+        { count: "exact" }
       )
-    `,
-    )
-    .eq("company_id", profile.company_id)
-    .order("submitted_at", { ascending: false })
+      .eq("company_id", profile.company_id)
 
-  const pendingVideos = allVideos?.filter((v) => v.status === "pending") || []
-  const approvedVideos = allVideos?.filter((v) => v.status === "approved") || []
-  const rejectedVideos = allVideos?.filter((v) => v.status === "rejected") || []
+    // Apply status filter
+    if (statusFilter && statusFilter !== "all") {
+      query = query.eq("status", statusFilter)
+    }
+
+    // Apply creator filter
+    if (creatorId) {
+      query = query.eq("creator_id", creatorId)
+    }
+
+    // Apply search filter - search across title, creator name, and platform
+    if (search) {
+      query = query.or(`title.ilike.%${search}%,platform.ilike.%${search}%`)
+    }
+
+    // Apply date filter (past two weeks)
+    if (pastTwoWeeks) {
+      const twoWeeksAgo = new Date()
+      twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14)
+      query = query.gte("submitted_at", twoWeeksAgo.toISOString())
+    }
+
+    // Apply sorting
+    const ascending = sortDirection === "asc"
+    switch (sortField) {
+      case "title":
+        query = query.order("title", { ascending })
+        break
+      case "platform":
+        query = query.order("platform", { ascending })
+        break
+      case "views":
+        query = query.order("views", { ascending })
+        break
+      case "status":
+        query = query.order("status", { ascending })
+        break
+      case "submitted_at":
+      default:
+        query = query.order("submitted_at", { ascending })
+        break
+    }
+
+    return query
+  }
+
+  // Fetch paginated videos for the active tab
+  const statusFilter = activeTab === "all" ? undefined : activeTab
+  const from = (page - 1) * itemsPerPage
+  const to = from + itemsPerPage - 1
+
+  const { data: paginatedVideos, count: totalCount } = await buildVideoQuery(statusFilter)
+    .range(from, to)
+
+  // Fetch list of creators for filter dropdown
+  const { data: creators } = await supabase
+    .from("creators")
+    .select("id, name")
+    .eq("company_id", profile.company_id)
+    .order("name")
+
+  // Fetch counts for each tab (without pagination)
+  const [
+    { count: allCount },
+    { count: pendingCount },
+    { count: approvedCount },
+    { count: rejectedCount }
+  ] = await Promise.all([
+    supabase.from("videos").select("*", { count: "exact", head: true }).eq("company_id", profile.company_id),
+    supabase.from("videos").select("*", { count: "exact", head: true }).eq("company_id", profile.company_id).eq("status", "pending"),
+    supabase.from("videos").select("*", { count: "exact", head: true }).eq("company_id", profile.company_id).eq("status", "approved"),
+    supabase.from("videos").select("*", { count: "exact", head: true }).eq("company_id", profile.company_id).eq("status", "rejected"),
+  ])
+
+  const totalPages = Math.ceil((totalCount || 0) / itemsPerPage)
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -77,54 +170,28 @@ export default async function VideosPage() {
         </Button>
       </div>
 
-      <Tabs defaultValue="all" className="w-full">
-        <TabsList>
-          <TabsTrigger value="all">
-            All <span className="ml-2 text-xs">({allVideos?.length || 0})</span>
-          </TabsTrigger>
-          <TabsTrigger value="pending">
-            Pending <span className="ml-2 text-xs">({pendingVideos.length})</span>
-          </TabsTrigger>
-          <TabsTrigger value="approved">
-            Approved <span className="ml-2 text-xs">({approvedVideos.length})</span>
-          </TabsTrigger>
-          <TabsTrigger value="rejected">
-            Rejected <span className="ml-2 text-xs">({rejectedVideos.length})</span>
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="all" className="mt-6">
-          <VideosTable
-            videos={allVideos || []}
-            companyBasePay={company?.base_pay ?? null}
-            companyCpm={company?.default_cpm ?? null}
-          />
-        </TabsContent>
-
-        <TabsContent value="pending" className="mt-6">
-          <VideosTable
-            videos={pendingVideos}
-            companyBasePay={company?.base_pay ?? null}
-            companyCpm={company?.default_cpm ?? null}
-          />
-        </TabsContent>
-
-        <TabsContent value="approved" className="mt-6">
-          <VideosTable
-            videos={approvedVideos}
-            companyBasePay={company?.base_pay ?? null}
-            companyCpm={company?.default_cpm ?? null}
-          />
-        </TabsContent>
-
-        <TabsContent value="rejected" className="mt-6">
-          <VideosTable
-            videos={rejectedVideos}
-            companyBasePay={company?.base_pay ?? null}
-            companyCpm={company?.default_cpm ?? null}
-          />
-        </TabsContent>
-      </Tabs>
+      <VideosTabsWrapper
+        activeTab={activeTab}
+        allCount={allCount || 0}
+        pendingCount={pendingCount || 0}
+        approvedCount={approvedCount || 0}
+        rejectedCount={rejectedCount || 0}
+      >
+        <VideosTable
+          videos={paginatedVideos || []}
+          companyBasePay={company?.base_pay ?? null}
+          companyCpm={company?.default_cpm ?? null}
+          currentPage={page}
+          totalPages={totalPages}
+          totalCount={totalCount || 0}
+          searchQuery={search}
+          sortField={sortField}
+          sortDirection={sortDirection}
+          showPastTwoWeeks={pastTwoWeeks}
+          creatorId={creatorId}
+          creators={creators || []}
+        />
+      </VideosTabsWrapper>
     </div>
   )
 }
