@@ -15,9 +15,9 @@ const DATASETS = {
     extraQuery: '',
   },
   tiktok: {
-    dataset_id: 'gd_lu702nij2f790tmv9h', // TikTok discover scraper
-    inputKey: 'URL', // Note: TikTok uses uppercase 'URL'
-    extraQuery: '&type=discover_new&discover_by=url',
+    dataset_id: 'gd_lu702nij2f790tmv9h', // TikTok scraper
+    inputKey: 'url',
+    extraQuery: '',
   },
   youtube: {
     dataset_id: 'gd_lk56epmy2i5g7lzu0k', // YouTube Shorts/Videos scraper
@@ -25,6 +25,8 @@ const DATASETS = {
     extraQuery: '',
   },
 };
+
+
 
 type Platform = 'instagram' | 'tiktok' | 'youtube';
 
@@ -40,6 +42,7 @@ interface ScrapedData {
   views?: number;
   likes?: number;
   comments?: number;
+  error?: string; // Track if there was an error scraping this video
   [key: string]: any;
 }
 
@@ -51,6 +54,34 @@ function detectPlatform(url: string): Platform | null {
   if (u.includes('tiktok.com')) return 'tiktok';
   if (u.includes('youtube.com/shorts') || u.includes('youtube.com/watch')) return 'youtube';
   return null;
+}
+
+// Extract video ID from URL for more robust matching
+function extractVideoId(url: string, platform: Platform): string | null {
+  try {
+    if (platform === 'instagram') {
+      // Instagram Reels: https://www.instagram.com/reel/ABC123/
+      const match = url.match(/\/reel\/([A-Za-z0-9_-]+)/);
+      return match ? match[1] : null;
+    } else if (platform === 'tiktok') {
+      // TikTok: https://www.tiktok.com/@username/video/1234567890
+      const match = url.match(/\/video\/(\d+)/);
+      return match ? match[1] : null;
+    } else if (platform === 'youtube') {
+      // YouTube: https://www.youtube.com/watch?v=ABC123 or /shorts/ABC123
+      const urlObj = new URL(url);
+      const vParam = urlObj.searchParams.get('v');
+      if (vParam) return vParam;
+
+      const match = url.match(/\/shorts\/([A-Za-z0-9_-]+)/);
+      return match ? match[1] : null;
+    }
+
+    return null;
+  } catch (e) {
+    console.error(`Error extracting video ID from ${url}:`, e);
+    return null;
+  }
 }
 
 async function triggerCollection({
@@ -152,19 +183,39 @@ function normalizeScrapedData(data: any, platform: Platform, originalUrl: string
     url: originalUrl,
   };
 
-  // Extract metrics based on platform-specific field names
-  if (platform === 'instagram') {
-    result.views = data.play_count || data.view_count || data.views || 0;
-    result.likes = data.like_count || data.likes || 0;
-    result.comments = data.comment_count || data.comments || 0;
-  } else if (platform === 'tiktok') {
-    result.views = data.playCount || data.play_count || data.views || 0;
-    result.likes = data.diggCount || data.like_count || data.likes || 0;
-    result.comments = data.commentCount || data.comment_count || data.comments || 0;
-  } else if (platform === 'youtube') {
-    result.views = data.view_count || data.viewCount || data.views || 0;
-    result.likes = data.like_count || data.likeCount || data.likes || 0;
-    result.comments = data.comment_count || data.commentCount || data.comments || 0;
+  try {
+    // Check if the scraped data contains an error
+    if (data.error || data.error_message || data.status === 'error') {
+      result.error = data.error || data.error_message || 'Scraping failed';
+      console.error(`Error in scraped data for ${originalUrl}:`, result.error);
+      return result;
+    }
+
+    // Extract metrics based on platform-specific field names
+    if (platform === 'instagram') {
+      // Instagram prioritizes video_play_count for actual video views
+      result.views = data.video_play_count || data.play_count || data.view_count || data.views || 0;
+      result.likes = data.likes || data.like_count || 0;
+      result.comments = data.num_comments || data.comment_count || data.comments || 0;
+    } else if (platform === 'tiktok') {
+      // TikTok uses snake_case field names
+      result.views = data.play_count || 0;
+      result.likes = data.digg_count || 0;
+      result.comments = data.comment_count || 0;
+    } else if (platform === 'youtube') {
+      result.views = data.view_count || data.viewCount || data.views || 0;
+      result.likes = data.like_count || data.likeCount || data.likes || 0;
+      result.comments = data.comment_count || data.commentCount || data.comments || 0;
+    }
+
+    // Validate that we got at least some data
+    if (result.views === 0 && result.likes === 0 && result.comments === 0) {
+      console.warn(`No metrics found for ${originalUrl}. Raw data:`, data);
+    }
+
+  } catch (error) {
+    result.error = error instanceof Error ? error.message : 'Unknown normalization error';
+    console.error(`Error normalizing data for ${originalUrl}:`, error);
   }
 
   return result;
@@ -209,6 +260,9 @@ export async function scrapeVideos(videos: VideoInput[]): Promise<Map<string, Sc
       if (platform === 'youtube') {
         return { [inputKey]: url, country: '', transcription_language: '' };
       }
+      if (platform === 'tiktok') {
+        return { [inputKey]: url, country: '' };
+      }
       return { [inputKey]: url };
     });
 
@@ -234,15 +288,62 @@ export async function scrapeVideos(videos: VideoInput[]): Promise<Map<string, Sc
       const data = await downloadSnapshotJson(snapshotId);
 
       if (Array.isArray(data)) {
-        // Match results to original URLs (data might not be in same order)
-        for (let i = 0; i < data.length && i < urls.length; i++) {
-          const record = data[i];
-          const url = urls[i];
-          const videoId = urlToVideoId.get(url);
+        // Match results by URL from the scraped data
+        for (const record of data) {
+          try {
+            // Extract the URL from the scraped record (different field names per platform)
+            const scrapedUrl = record.url || record.input_url || record.video_url || record.link;
 
-          if (videoId) {
-            const normalized = normalizeScrapedData(record, platform, url);
-            results.set(videoId, normalized);
+            if (!scrapedUrl) {
+              console.warn(`No URL found in scraped record for ${platform}:`, record);
+              continue;
+            }
+
+            // Extract video ID from scraped URL for robust matching
+            const scrapedVideoId = extractVideoId(scrapedUrl, platform);
+
+            // Find the matching original URL using BOTH video ID and URL string matching
+            let matchMethod: 'id' | 'url' | null = null;
+            const matchingUrl = urls.find(url => {
+              // Method 1: Match by video ID (most reliable for handling URL variations)
+              if (scrapedVideoId) {
+                const originalVideoId = extractVideoId(url, platform);
+                if (originalVideoId && originalVideoId === scrapedVideoId) {
+                  matchMethod = 'id';
+                  return true; // Video IDs match!
+                }
+              }
+
+              // Method 2: Match by normalized URL string (fallback)
+              const normalizedScraped = scrapedUrl.split('?')[0].replace(/\/$/, '').toLowerCase();
+              const normalizedOriginal = url.split('?')[0].replace(/\/$/, '').toLowerCase();
+              if (normalizedScraped === normalizedOriginal || scrapedUrl === url) {
+                matchMethod = 'url';
+                return true; // URL strings match!
+              }
+
+              return false; // No match
+            });
+
+            if (matchingUrl) {
+              const videoId = urlToVideoId.get(matchingUrl);
+              if (videoId) {
+                const normalized = normalizeScrapedData(record, platform, matchingUrl);
+
+                // Only add to results if there's no error
+                if (!normalized.error) {
+                  results.set(videoId, normalized);
+                  console.log(`✓ Matched ${platform} video by ${matchMethod}: ${scrapedVideoId || 'N/A'} -> ${videoId}`);
+                } else {
+                  console.error(`✗ Skipping video ${videoId} due to error: ${normalized.error}`);
+                }
+              }
+            } else {
+              console.warn(`Could not match scraped URL to original URL: ${scrapedUrl} (video ID: ${scrapedVideoId || 'none'})`);
+            }
+          } catch (error) {
+            console.error(`Error processing scraped record for ${platform}:`, error, record);
+            // Continue with next record
           }
         }
       }
