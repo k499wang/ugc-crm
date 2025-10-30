@@ -34,18 +34,45 @@ export default async function CreatorDashboardPage() {
     )
   }
 
-  // Fetch creator's videos
+  // Fetch creator's videos with paid tier payments to compute totals
   const { data: videos } = await supabase
     .from("videos")
-    .select("*")
+    .select(
+      `
+        *,
+        video_tier_payments (
+          id,
+          paid,
+          paid_at,
+          payment_amount,
+          tier:payment_tiers (
+            id,
+            tier_name,
+            amount,
+            view_count_threshold
+          )
+        )
+      `
+    )
     .eq("creator_id", creator.id)
     .order("submitted_at", { ascending: false })
 
   const totalVideos = videos?.length || 0
   const pendingVideos = videos?.filter((v) => v.status === "pending").length || 0
   const approvedVideos = videos?.filter((v) => v.status === "approved").length || 0
-  const totalEarnings =
-    videos?.filter((v) => v.status === "paid").reduce((sum, v) => sum + (v.payment_amount || 0), 0) || 0
+  // Compute total earnings = (base+CPM if paid) + sum(paid tier payments)
+  const videosWithTotals = (videos || []).map((v: any) => {
+    const baseCpmTotal = v.base_cpm_paid
+      ? (v.base_payment_amount || 0) + (v.cpm_payment_amount || 0)
+      : 0
+    const paidTiersTotal = (v.video_tier_payments || [])
+      .filter((tp: any) => tp.paid && tp.payment_amount != null)
+      .reduce((s: number, tp: any) => s + (tp.payment_amount || 0), 0)
+    const total_paid = baseCpmTotal + paidTiersTotal
+    return { ...v, total_paid }
+  })
+
+  const totalEarnings = videosWithTotals.reduce((s: number, v: any) => s + (v.total_paid || 0), 0)
 
   const stats = [
     {
@@ -98,7 +125,7 @@ export default async function CreatorDashboardPage() {
 
       <div>
         <h2 className="mb-4 text-xl font-semibold">Your Videos</h2>
-        <CreatorVideosTable videos={videos || []} />
+        <CreatorVideosTable videos={videosWithTotals} />
       </div>
     </div>
   )

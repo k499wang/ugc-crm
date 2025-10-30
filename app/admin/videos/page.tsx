@@ -13,6 +13,7 @@ type SearchParams = Promise<{
   sortDirection?: string
   pastTwoWeeks?: string
   creatorId?: string
+  creatorTypeId?: string
 }>
 
 export default async function VideosPage({ searchParams }: { searchParams: SearchParams }) {
@@ -24,6 +25,7 @@ export default async function VideosPage({ searchParams }: { searchParams: Searc
   const sortDirection = params.sortDirection || "desc"
   const pastTwoWeeks = params.pastTwoWeeks === "true"
   const creatorId = params.creatorId || ""
+  const creatorTypeId = params.creatorTypeId || ""
   const itemsPerPage = 15
 
   const supabase = await createClient()
@@ -40,6 +42,23 @@ export default async function VideosPage({ searchParams }: { searchParams: Searc
     .select("base_pay, default_cpm")
     .eq("id", profile.company_id)
     .single()
+
+  // Pre-fetch creator IDs for creator type filter if needed
+  let creatorTypeFilterIds: string[] | null = null
+  if (creatorTypeId) {
+    const { data: creatorsWithType } = await supabase
+      .from("creators")
+      .select("id")
+      .eq("creator_type_id", creatorTypeId)
+      .eq("company_id", profile.company_id)
+
+    if (creatorsWithType && creatorsWithType.length > 0) {
+      creatorTypeFilterIds = creatorsWithType.map((c) => c.id)
+    } else {
+      // No creators with this type, set to empty array to return no results
+      creatorTypeFilterIds = []
+    }
+  }
 
   // Build base query for videos with creator information and tier payments
   const buildVideoQuery = (statusFilter?: string) => {
@@ -89,6 +108,16 @@ export default async function VideosPage({ searchParams }: { searchParams: Searc
       query = query.eq("creator_id", creatorId)
     }
 
+    // Apply creator type filter using pre-fetched IDs
+    if (creatorTypeFilterIds !== null) {
+      if (creatorTypeFilterIds.length > 0) {
+        query = query.in("creator_id", creatorTypeFilterIds)
+      } else {
+        // No creators with this type, return empty results
+        query = query.eq("creator_id", "00000000-0000-0000-0000-000000000000")
+      }
+    }
+
     // Apply search filter - search across title, creator name, and platform
     if (search) {
       query = query.or(`title.ilike.%${search}%,platform.ilike.%${search}%`)
@@ -136,6 +165,13 @@ export default async function VideosPage({ searchParams }: { searchParams: Searc
   // Fetch list of creators for filter dropdown
   const { data: creators } = await supabase
     .from("creators")
+    .select("id, name")
+    .eq("company_id", profile.company_id)
+    .order("name")
+
+  // Fetch list of creator types for filter dropdown
+  const { data: creatorTypes } = await supabase
+    .from("creator_types")
     .select("id, name")
     .eq("company_id", profile.company_id)
     .order("name")
@@ -190,6 +226,8 @@ export default async function VideosPage({ searchParams }: { searchParams: Searc
           showPastTwoWeeks={pastTwoWeeks}
           creatorId={creatorId}
           creators={creators || []}
+          creatorTypeId={creatorTypeId}
+          creatorTypes={creatorTypes || []}
         />
       </VideosTabsWrapper>
     </div>

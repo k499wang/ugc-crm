@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import type { Creator, Niche, PaymentTierConfig } from "@/lib/types"
+import type { Creator, Niche, CreatorType, PaymentTierConfig } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -27,6 +27,7 @@ export function CreatorForm({ creator }: CreatorFormProps) {
   const [inviteLink, setInviteLink] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [niches, setNiches] = useState<Niche[]>([])
+  const [creatorTypes, setCreatorTypes] = useState<CreatorType[]>([])
   const [newCreatorId, setNewCreatorId] = useState<string | null>(null)
   const [companyId, setCompanyId] = useState<string>("")
   const [paymentTiers, setPaymentTiers] = useState<PaymentTierConfig[]>([])
@@ -41,28 +42,37 @@ export function CreatorForm({ creator }: CreatorFormProps) {
     notes: creator?.notes || "",
     is_active: creator?.is_active ?? true,
     niche_id: creator?.niche_id || "",
+    creator_type_id: creator?.creator_type_id || "",
     base_pay: creator?.base_pay?.toString() || "",
     cpm: creator?.cpm?.toString() || "",
   })
 
   useEffect(() => {
-    const fetchNiches = async () => {
+    const fetchNichesAndCreatorTypes = async () => {
       const { data: profile } = await supabase.from("profiles").select("company_id").single()
 
       if (profile?.company_id) {
         setCompanyId(profile.company_id)
 
-        const { data } = await supabase
+        const { data: nichesData } = await supabase
           .from("niches")
           .select("*")
           .eq("company_id", profile.company_id)
           .order("name")
 
-        setNiches(data || [])
+        setNiches(nichesData || [])
+
+        const { data: creatorTypesData } = await supabase
+          .from("creator_types")
+          .select("*")
+          .eq("company_id", profile.company_id)
+          .order("name")
+
+        setCreatorTypes(creatorTypesData || [])
       }
     }
 
-    fetchNiches()
+    fetchNichesAndCreatorTypes()
   }, [supabase])
 
   useEffect(() => {
@@ -104,6 +114,7 @@ export function CreatorForm({ creator }: CreatorFormProps) {
         notes: formData.notes || null,
         is_active: formData.is_active,
         niche_id: formData.niche_id || null,
+        creator_type_id: formData.creator_type_id || null,
         base_pay: formData.base_pay ? parseFloat(formData.base_pay) : null,
         cpm: formData.cpm ? parseFloat(formData.cpm) : null,
       }
@@ -214,6 +225,7 @@ export function CreatorForm({ creator }: CreatorFormProps) {
                     notes: "",
                     is_active: true,
                     niche_id: "",
+                    creator_type_id: "",
                     base_pay: "",
                     cpm: "",
                   })
@@ -320,6 +332,25 @@ export function CreatorForm({ creator }: CreatorFormProps) {
                   {niches.map((niche) => (
                     <SelectItem key={niche.id} value={niche.id}>
                       {niche.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="creator_type">Creator Type</Label>
+              <Select
+                value={formData.creator_type_id}
+                onValueChange={(value) => setFormData({ ...formData, creator_type_id: value || "" })}
+              >
+                <SelectTrigger id="creator_type">
+                  <SelectValue placeholder="Select a creator type (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  {creatorTypes.map((creatorType) => (
+                    <SelectItem key={creatorType.id} value={creatorType.id}>
+                      {creatorType.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -66,12 +66,48 @@ export type Database = {
         }
         Relationships: []
       }
+      creator_types: {
+        Row: {
+          company_id: string
+          created_at: string | null
+          description: string | null
+          id: string
+          name: string
+          updated_at: string | null
+        }
+        Insert: {
+          company_id: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name: string
+          updated_at?: string | null
+        }
+        Update: {
+          company_id?: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creator_types_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       creators: {
         Row: {
           base_pay: number | null
           company_id: string
           cpm: number | null
           created_at: string | null
+          creator_type_id: string | null
           email: string | null
           id: string
           instagram_handle: string | null
@@ -91,6 +127,7 @@ export type Database = {
           company_id: string
           cpm?: number | null
           created_at?: string | null
+          creator_type_id?: string | null
           email?: string | null
           id?: string
           instagram_handle?: string | null
@@ -110,6 +147,7 @@ export type Database = {
           company_id?: string
           cpm?: number | null
           created_at?: string | null
+          creator_type_id?: string | null
           email?: string | null
           id?: string
           instagram_handle?: string | null
@@ -130,6 +168,13 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creators_creator_type_id_fkey"
+            columns: ["creator_type_id"]
+            isOneToOne: false
+            referencedRelation: "creator_types"
             referencedColumns: ["id"]
           },
           {
@@ -611,3 +656,13 @@ export const Constants = {
     },
   },
 } as const
+
+// Convenience type aliases
+export type Niche = Tables<"niches">
+export type CreatorType = Tables<"creator_types">
+export type Creator = Tables<"creators">
+export type Video = Tables<"videos">
+export type PaymentTierConfig = Tables<"payment_tiers">
+export type VideoTierPayment = Tables<"video_tier_payments">
+export type Profile = Tables<"profiles">
+export type Company = Tables<"companies">

@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server"
 import { NichesPageClient } from "@/components/admin/niches-page-client"
 
 type SearchParams = Promise<{
+  tab?: string
   page?: string
   search?: string
   sortField?: string
@@ -10,6 +11,7 @@ type SearchParams = Promise<{
 
 export default async function NichesPage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams
+  const tab = params.tab || "niches"
   const page = Number.parseInt(params.page || "1")
   const search = params.search || ""
   const sortField = params.sortField || "name"
@@ -24,37 +26,50 @@ export default async function NichesPage({ searchParams }: { searchParams: Searc
     return <div>No company found</div>
   }
 
-  // Build query for niches
+  // Fetch niches
   let nichesQuery = supabase
     .from("niches")
     .select("*", { count: "exact" })
     .eq("company_id", profile.company_id)
 
-  // Apply search filter
-  if (search) {
+  if (search && tab === "niches") {
     nichesQuery = nichesQuery.ilike("name", `%${search}%`)
   }
 
-  // Apply sorting
   const ascending = sortDirection === "asc"
   nichesQuery = nichesQuery.order(sortField, { ascending })
 
-  // Apply pagination
   const from = (page - 1) * itemsPerPage
   const to = from + itemsPerPage - 1
-  const { data: niches, count: totalCount } = await nichesQuery.range(from, to)
+  const { data: niches, count: nichesTotalCount } = await nichesQuery.range(from, to)
 
-  const totalPages = Math.ceil((totalCount || 0) / itemsPerPage)
+  // Fetch creator types
+  let creatorTypesQuery = supabase
+    .from("creator_types")
+    .select("*", { count: "exact" })
+    .eq("company_id", profile.company_id)
+
+  if (search && tab === "creator-types") {
+    creatorTypesQuery = creatorTypesQuery.ilike("name", `%${search}%`)
+  }
+
+  creatorTypesQuery = creatorTypesQuery.order(sortField, { ascending })
+  const { data: creatorTypes, count: creatorTypesTotalCount } = await creatorTypesQuery.range(from, to)
+
+  const totalCount = tab === "creator-types" ? (creatorTypesTotalCount || 0) : (nichesTotalCount || 0)
+  const totalPages = Math.ceil(totalCount / itemsPerPage)
 
   return (
     <NichesPageClient
       niches={niches || []}
+      creatorTypes={creatorTypes || []}
       currentPage={page}
       totalPages={totalPages}
-      totalCount={totalCount || 0}
+      totalCount={totalCount}
       searchQuery={search}
       sortField={sortField}
       sortDirection={sortDirection}
+      activeTab={tab}
     />
   )
 }

@@ -70,6 +70,8 @@ interface VideosTableProps {
   showPastTwoWeeks: boolean
   creatorId: string
   creators: Array<{ id: string; name: string }>
+  creatorTypeId: string
+  creatorTypes: Array<{ id: string; name: string }>
 }
 
 type SortField = "title" | "creator" | "platform" | "views" | "status" | "submitted_at"
@@ -88,6 +90,8 @@ export function VideosTable({
   showPastTwoWeeks: initialShowPastTwoWeeks,
   creatorId: initialCreatorId,
   creators,
+  creatorTypeId: initialCreatorTypeId,
+  creatorTypes,
 }: VideosTableProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -104,6 +108,8 @@ export function VideosTable({
   const [updatingViews, setUpdatingViews] = useState(false)
   const [creatorComboboxOpen, setCreatorComboboxOpen] = useState(false)
   const [creatorSearchQuery, setCreatorSearchQuery] = useState("")
+  const [creatorTypeComboboxOpen, setCreatorTypeComboboxOpen] = useState(false)
+  const [creatorTypeSearchQuery, setCreatorTypeSearchQuery] = useState("")
 
   // Local state for search input (for typing without triggering on every keystroke)
   const [searchInput, setSearchInput] = useState(initialSearchQuery)
@@ -178,7 +184,17 @@ export function VideosTable({
     setCreatorSearchQuery("") // Reset search for next time
   }
 
+  const handleCreatorTypeFilter = (value: string) => {
+    updateUrlParams({
+      creatorTypeId: value === "all" ? null : value,
+      page: "1", // Reset to page 1 when filter changes
+    })
+    setCreatorTypeComboboxOpen(false)
+    setCreatorTypeSearchQuery("") // Reset search for next time
+  }
+
   const selectedCreator = creators.find(c => c.id === initialCreatorId)
+  const selectedCreatorType = creatorTypes.find(ct => ct.id === initialCreatorTypeId)
 
   // Filter and limit creators for dropdown
   const filteredCreators = creatorSearchQuery
@@ -186,6 +202,13 @@ export function VideosTable({
         creator.name.toLowerCase().includes(creatorSearchQuery.toLowerCase())
       ).slice(0, 100) // Show max 100 search results
     : creators.slice(0, 50) // Show first 50 initially
+
+  // Filter and limit creator types for dropdown
+  const filteredCreatorTypes = creatorTypeSearchQuery
+    ? creatorTypes.filter((creatorType) =>
+        creatorType.name.toLowerCase().includes(creatorTypeSearchQuery.toLowerCase())
+      ).slice(0, 100) // Show max 100 search results
+    : creatorTypes.slice(0, 50) // Show first 50 initially
 
   const handlePageChange = (newPage: number) => {
     updateUrlParams({
@@ -413,6 +436,86 @@ export function VideosTable({
               </Command>
             </PopoverContent>
           </Popover>
+          <Popover
+            open={creatorTypeComboboxOpen}
+            onOpenChange={(open) => {
+              setCreatorTypeComboboxOpen(open)
+              if (!open) setCreatorTypeSearchQuery("") // Reset search when closing
+            }}
+          >
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                aria-expanded={creatorTypeComboboxOpen}
+                className="w-[250px] justify-between bg-white"
+                disabled={isPending}
+              >
+                <div className="flex items-center">
+                  <Filter className="mr-2 h-4 w-4 shrink-0" />
+                  <span className="truncate">
+                    {selectedCreatorType ? selectedCreatorType.name : "All Creator Types"}
+                  </span>
+                </div>
+                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[250px] p-0" align="start">
+              <Command shouldFilter={false}>
+                <CommandInput
+                  placeholder="Search creator types..."
+                  value={creatorTypeSearchQuery}
+                  onValueChange={setCreatorTypeSearchQuery}
+                />
+                <CommandList>
+                  <CommandEmpty>
+                    {creatorTypeSearchQuery
+                      ? "No creator type found."
+                      : "Type to search creator types..."}
+                  </CommandEmpty>
+                  <CommandGroup>
+                    <CommandItem
+                      value="all"
+                      onSelect={() => handleCreatorTypeFilter("all")}
+                    >
+                      <Check
+                        className={cn(
+                          "mr-2 h-4 w-4",
+                          !initialCreatorTypeId ? "opacity-100" : "opacity-0"
+                        )}
+                      />
+                      All Creator Types
+                    </CommandItem>
+                    {filteredCreatorTypes.map((creatorType) => (
+                      <CommandItem
+                        key={creatorType.id}
+                        value={creatorType.id}
+                        onSelect={() => handleCreatorTypeFilter(creatorType.id)}
+                      >
+                        <Check
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            initialCreatorTypeId === creatorType.id ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                        {creatorType.name}
+                      </CommandItem>
+                    ))}
+                    {!creatorTypeSearchQuery && creatorTypes.length > 50 && (
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground text-center border-t">
+                        Showing first 50 of {creatorTypes.length} creator types. Type to search more.
+                      </div>
+                    )}
+                    {creatorTypeSearchQuery && filteredCreatorTypes.length === 100 && (
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground text-center border-t">
+                        Showing first 100 results. Refine your search for more.
+                      </div>
+                    )}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
           <Button
             variant={initialShowPastTwoWeeks ? "default" : "outline"}
             size="sm"
@@ -422,13 +525,13 @@ export function VideosTable({
             <Calendar className="mr-2 h-4 w-4" />
             Past 2 Weeks
           </Button>
-          {(initialSearchQuery || initialCreatorId) && (
+          {(initialSearchQuery || initialCreatorId || initialCreatorTypeId) && (
             <Button
               variant="ghost"
               size="sm"
               onClick={() => {
                 setSearchInput("")
-                updateUrlParams({ search: null, creatorId: null, page: "1" })
+                updateUrlParams({ search: null, creatorId: null, creatorTypeId: null, page: "1" })
               }}
             >
               Clear filters
@@ -440,6 +543,9 @@ export function VideosTable({
           {currentPage > 1 && ` (page ${currentPage} of ${totalPages})`}
           {initialCreatorId && creators.find(c => c.id === initialCreatorId) && (
             <> • Filtered by creator: <strong>{creators.find(c => c.id === initialCreatorId)?.name}</strong></>
+          )}
+          {initialCreatorTypeId && creatorTypes.find(ct => ct.id === initialCreatorTypeId) && (
+            <> • Filtered by type: <strong>{creatorTypes.find(ct => ct.id === initialCreatorTypeId)?.name}</strong></>
           )}
         </p>
       </div>
