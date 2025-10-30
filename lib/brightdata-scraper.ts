@@ -199,9 +199,9 @@ function normalizeScrapedData(data: any, platform: Platform, originalUrl: string
       result.comments = data.num_comments || data.comment_count || data.comments || 0;
     } else if (platform === 'tiktok') {
       // TikTok uses snake_case field names
-      result.views = data.play_count || 0;
-      result.likes = data.digg_count || 0;
-      result.comments = data.comment_count || 0;
+      result.views = data.play_count 
+      result.likes = data.digg_count 
+      result.comments = data.comment_count 
     } else if (platform === 'youtube') {
       result.views = data.view_count || data.viewCount || data.views || 0;
       result.likes = data.like_count || data.likeCount || data.likes || 0;
